@@ -17,52 +17,90 @@ interface PermissionCheck {
 // Constants
 const MONEY_MOVEMENT_ROUTES = [
 	'POST /organizations/*/card_grants',
+	'POST /card_grants/*/activate',
 	'POST /card_grants/*/topup',
 	'POST /card_grants/*/withdraw',
 	'POST /card_grants/*/cancel',
 	'POST /organizations/*/transfers',
-	'POST /organizations/*/ach_transfers'
+	'POST /ach_transfers',
+	'POST /checks'
 ] as const;
 
 const CARD_ACCESS_ROUTES = [
 	'GET /user/cards',
 	'GET /organizations/*/cards',
+	'POST /cards',
+	'GET /cards/card_designs',
+	'POST /cards/freeze',
+	'POST /cards/defrost',
+	'POST /cards/activate',
 	'GET /cards/*',
 	'PUT /cards/*',
 	'PATCH /cards/*',
-	'POST /cards',
 	'POST /cards/*/cancel',
 	'GET /cards/*/transactions',
 	'GET /cards/*/ephemeral_keys',
-	'GET /user/grants',
-	'GET /organizations/*/grants',
-	'GET /grants/*',
-	'PUT /grants/*',
-	'PATCH /grants/*'
+
+	'GET /user/card_grants',
+	'GET /organizations/*/card_grants',
+	'POST /organizations/*/card_grants',
+	'GET /card_grants/*',
+	'PUT /card_grants/*',
+	'PATCH /card_grants/*',
+	'POST /card_grants/*/activate',
+	'POST /card_grants/*/topup',
+	'POST /card_grants/*/withdraw',
+	'POST /card_grants/*/cancel',
+	'GET /card_grants/*/transactions'
 ] as const;
 
 const FUNDRAISING_ROUTES = [
 	'POST /invoices',
 	'POST /organizations/*/donations',
-	'POST /organizations/*/sponsors'
+	'POST /organizations/*/donations/*/payment_intent',
+	'POST /sponsors'
 ] as const;
 
 const BOOKKEEPING_ROUTES = [
-	'POST /transactions/*/comments',
-	'POST /transactions/*/receipts',
-	'PATCH /transactions/*'
+	'POST /comments',
+	'POST /organizations/*/transactions/*/comments',
+	'POST /receipts',
+	'DELETE /receipts/*',
+	'PUT /organizations/*/transactions/*',
+	'PATCH /organizations/*/transactions/*',
+	'POST /transactions/*/mark_no_receipt',
+	'POST /tags',
+	'DELETE /tags/*'
 ] as const;
 
 const ORG_ADMIN_ROUTES = [
 	'POST /organizations/*/sub_organizations',
-	'PATCH /organizations/*'
+	'POST /organizations/*/invitations',
+	'DELETE /organizations/*/invitations/*'
 ] as const;
 
 const VIEW_FINANCIALS_ROUTES = [
-	'GET /transactions',
-	'GET /transactions/*',
+	'GET /organizations/*',
+	'GET /organizations/*/balance_by_date',
 	'GET /organizations/*/transactions',
-	'GET /organizations/*'
+	'GET /organizations/*/transactions/*',
+	'GET /organizations/*/transactions/*/receipts',
+	'GET /organizations/*/transactions/*/comments',
+	'GET /transactions/*',
+	'GET /user/transactions/missing_receipt',
+
+	'GET /invoices',
+	'GET /invoices/*',
+	'GET /checks',
+	'GET /checks/*',
+	'GET /sponsors',
+	'GET /sponsors/*',
+	'GET /check_deposits',
+	'GET /check_deposits/*',
+	'GET /receipts',
+	'GET /comments',
+	'GET /tags',
+	'GET /tags/*'
 ] as const;
 
 const DATA_MUTATION_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -190,6 +228,7 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 
 	// these headers can cause issues with reverse proxies (e.g. cloudflare)
 	const forwardHeaders = excludeHeaders(response.headers, ['content-type', 'content-encoding']);
+	forwardHeaders.set('Content-Type', 'application/json; charset=utf-8');
 	return new Response(responseText, {
 		status: response.status,
 		statusText: response.statusText,
@@ -345,10 +384,7 @@ async function handleIdempotency(
 
 function handleIdempotencyCollision(existingLog: AuditLog, requestBody: string): Response {
 	if (existingLog.requestBody !== requestBody) {
-		return json(
-			{ error: 'Idempotency key reused with different request data' },
-			{ status: 409 }
-		);
+		return json({ error: 'Idempotency key reused with different request data' }, { status: 409 });
 	}
 
 	if (existingLog.responseStatus === 0) {
@@ -372,10 +408,7 @@ async function checkIdempotencyKeyCollision(
 	const [existingLog] = await db
 		.select()
 		.from(auditLog)
-		.where(and(
-			eq(auditLog.appId, appId),
-			eq(auditLog.idempotencyKey, idempotencyKey)
-		))
+		.where(and(eq(auditLog.appId, appId), eq(auditLog.idempotencyKey, idempotencyKey)))
 		.limit(1);
 
 	return existingLog || null;
