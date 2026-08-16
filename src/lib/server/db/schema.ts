@@ -21,10 +21,7 @@ export const app = sqliteTable(
 			.notNull()
 			.default(false)
 	},
-	(table) => [
-		index('app_id_idx').on(table.id),
-		index('app_api_key_hash_idx').on(table.apiKeyHash)
-	]
+	(table) => [index('app_id_idx').on(table.id), index('app_api_key_hash_idx').on(table.apiKeyHash)]
 );
 
 export const oauthToken = sqliteTable(
