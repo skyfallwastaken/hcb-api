@@ -195,8 +195,24 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 		return json({ error: 'Invalid API key' }, { status: 401 });
 	}
 
+	const routePath = canonicalRoutePath(targetPath);
+	if (routePath === null) {
+		return json({ error: 'Malformed request path' }, { status: 400 });
+	}
+
+	const requestBody = await safeReadRequestBody(request);
+
+	if (hasMethodOverride(request, requestBody)) {
+		return json(
+			{ error: 'Method overrides are not supported, send the real HTTP method instead' },
+			{ status: 400 }
+		);
+	}
+
 	// is someone being a naughty boy? let's find out!
-	const permissionCheck = checkPermissions(method, targetPath, validApp);
+	// Rails routes HEAD requests to GET actions
+	const routeMethod = method === 'HEAD' ? 'GET' : method;
+	const permissionCheck = checkPermissions(routeMethod, routePath, validApp);
 	if (!permissionCheck.allowed) {
 		return json(
 			{
@@ -208,7 +224,6 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 	}
 
 	// prepare request data for audit logging.
-	const requestBody = await safeReadRequestBody(request);
 	const filteredRequestHeaders = replaceHeaders(request.headers, HEADERS_TO_REDACT, '[REDACTED]');
 
 	const auditResult = await handleIdempotency(
@@ -263,6 +278,52 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 }
 
 // helper functions!
+
+// The path we forward is routed by HCB's Rails app, which treats `/user/revoke/`,
+// `//user//revoke` and `/user/revoke.json` as `/user/revoke`. Permission checks
+// need to see that same route. Rails doesn't decode `%xx` before routing, but we
+// decode anyway so a decoding layer in front of HCB can't open a bypass.
+// Returns null for paths we refuse to proxy.
+function canonicalRoutePath(path: string): string | null {
+	// an encoded slash would make our segments differ from Rails' segments
+	if (/%2f|%5c/i.test(path)) return null;
+
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(path);
+	} catch {
+		return null;
+	}
+
+	const canonical = `/${decoded}`
+		.replace(/\/+/g, '/')
+		.replace(/\/$/, '')
+		// Rails' optional `(.:format)` suffix
+		.replace(/\.[^/.]*$/, '')
+		.replace(/\/$/, '');
+
+	return canonical || '/';
+}
+
+// HCB runs Rack::MethodOverride, which turns a POST into any other method via the
+// `X-HTTP-Method-Override` header or a `_method` form field. Allowing that would let
+// e.g. `POST /user/cards` act as `GET /user/cards` and skip permission checks.
+function hasMethodOverride(request: Request, body: string): boolean {
+	if (request.method !== 'POST') return false;
+	if (request.headers.has('X-HTTP-Method-Override')) return true;
+
+	// Rack parses the body as a form when it has no content type or a form/multipart one
+	const mediaType = request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+	if (mediaType?.startsWith('multipart/')) {
+		return /content-disposition:[^\r\n]*name\*?=[^\r\n]*_method/i.test(body);
+	}
+	if (!mediaType || mediaType === 'application/x-www-form-urlencoded') {
+		return [...new URLSearchParams(body).keys()].some((key) => key.startsWith('_method'));
+	}
+
+	return false;
+}
+
 async function safeReadRequestBody(request: Request): Promise<string> {
 	try {
 		const bodyText = await request.text();
