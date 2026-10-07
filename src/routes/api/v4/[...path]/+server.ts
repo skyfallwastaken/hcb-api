@@ -200,7 +200,7 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 		return json({ error: 'Malformed request path' }, { status: 400 });
 	}
 
-	const requestBody = await safeReadRequestBody(request);
+	const { bytes: requestBytes, text: requestBody } = await safeReadRequestBody(request);
 
 	if (hasMethodOverride(request, requestBody)) {
 		return json(
@@ -246,7 +246,7 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 		return json({ error: 'HCB_CLIENT_ID not configured' }, { status: 500 });
 	}
 
-	const response = await makeUpstreamRequest(request, method, targetPath, url.search, requestBody);
+	const response = await makeUpstreamRequest(request, method, targetPath, url.search, requestBytes);
 	const responseText = await safeReadResponseBody(response);
 
 	if (auditLogEntry) {
@@ -324,13 +324,17 @@ function hasMethodOverride(request: Request, body: string): boolean {
 	return false;
 }
 
-async function safeReadRequestBody(request: Request): Promise<string> {
+// `bytes` is forwarded to HCB unchanged, so binary uploads like receipts survive.
+// `text` is for audit logs and idempotency comparisons.
+async function safeReadRequestBody(
+	request: Request
+): Promise<{ bytes: ArrayBuffer; text: string }> {
 	try {
-		const bodyText = await request.text();
-		return bodyText?.trim() || '';
+		const bytes = await request.arrayBuffer();
+		return { bytes, text: new TextDecoder().decode(bytes).trim() };
 	} catch (error) {
-		console.warn('Could not read request body for audit logging:', error);
-		return '';
+		console.warn('Could not read request body:', error);
+		return { bytes: new ArrayBuffer(0), text: '' };
 	}
 }
 
@@ -349,7 +353,7 @@ async function makeUpstreamRequest(
 	method: string,
 	targetPath: string,
 	search: string,
-	requestBody: string
+	requestBody: ArrayBuffer
 ): Promise<Response> {
 	const tokenResponse = await getValidTokenResponse(env.HCB_CLIENT_ID!);
 	const targetUrl = `https://hcb.hackclub.com/api/v4${targetPath}${search}`;
