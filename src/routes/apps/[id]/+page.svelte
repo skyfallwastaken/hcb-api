@@ -89,7 +89,7 @@
 		<div class="space-y-0.5">
 			<Label class="text-base font-medium">Enable money movement</Label>
 			<p class="text-sm text-muted-foreground">
-				Allow this app to issue grants, create reimbursements, and initiate money transfers.
+				Allow this app to issue grants and send transfers, ACH payments, checks, and wires.
 			</p>
 		</div>
 		<Switch bind:checked={$form.allowMoneyMovement} />
@@ -103,7 +103,7 @@
 		<div class="space-y-0.5">
 			<Label class="text-base font-medium">Enable fundraising</Label>
 			<p class="text-sm text-muted-foreground">
-				Allow this app to create invoices, donations, and sponsors (inbound funds).
+				Allow this app to create invoices, donations, sponsors, and check deposits (inbound funds).
 			</p>
 		</div>
 		<Switch bind:checked={$form.allowFundraising} />
@@ -119,7 +119,7 @@
 		<div class="space-y-0.5">
 			<Label class="text-base font-medium">Enable organization admin</Label>
 			<p class="text-sm text-muted-foreground">
-				Allow this app to create sub-organizations and update organization settings.
+				Allow this app to create sub-organizations, manage invitations, and request member removals.
 			</p>
 		</div>
 		<Switch bind:checked={$form.allowOrgAdmin} />
