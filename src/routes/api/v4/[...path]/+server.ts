@@ -12,9 +12,17 @@ import { sha256 } from '$lib/utils';
 interface PermissionCheck {
 	allowed: boolean;
 	required?: string;
+	error?: string;
 }
 
 // Constants
+// routes no app may call, regardless of permissions
+const BLOCKED_ROUTES = [
+	// revokes the token making the request, which is HCB-API's shared OAuth token,
+	// so one app could break every other app
+	'POST /user/revoke'
+] as const;
+
 const MONEY_MOVEMENT_ROUTES = [
 	'POST /organizations/*/card_grants',
 	'POST /card_grants/*/activate',
@@ -23,7 +31,8 @@ const MONEY_MOVEMENT_ROUTES = [
 	'POST /card_grants/*/cancel',
 	'POST /organizations/*/transfers',
 	'POST /ach_transfers',
-	'POST /checks'
+	'POST /checks',
+	'POST /wires'
 ] as const;
 
 const CARD_ACCESS_ROUTES = [
@@ -58,7 +67,9 @@ const FUNDRAISING_ROUTES = [
 	'POST /invoices',
 	'POST /organizations/*/donations',
 	'POST /organizations/*/donations/*/payment_intent',
-	'POST /sponsors'
+	'POST /sponsors',
+	'POST /check_deposits',
+	'GET /stripe_terminal_connection_token'
 ] as const;
 
 const BOOKKEEPING_ROUTES = [
@@ -76,7 +87,10 @@ const BOOKKEEPING_ROUTES = [
 const ORG_ADMIN_ROUTES = [
 	'POST /organizations/*/sub_organizations',
 	'POST /organizations/*/invitations',
-	'DELETE /organizations/*/invitations/*'
+	'DELETE /organizations/*/invitations/*',
+	'POST /user/invitations/*/accept',
+	'POST /user/invitations/*/reject',
+	'POST /organizer_positions/*/removal_request'
 ] as const;
 
 const VIEW_FINANCIALS_ROUTES = [
@@ -86,6 +100,7 @@ const VIEW_FINANCIALS_ROUTES = [
 	'GET /organizations/*/transactions/*',
 	'GET /organizations/*/transactions/*/receipts',
 	'GET /organizations/*/transactions/*/comments',
+	'GET /organizations/*/transactions/*/memo_suggestions',
 	'GET /transactions/*',
 	'GET /user/transactions/missing_receipt',
 
@@ -97,6 +112,10 @@ const VIEW_FINANCIALS_ROUTES = [
 	'GET /sponsors/*',
 	'GET /check_deposits',
 	'GET /check_deposits/*',
+	'GET /wires',
+	'GET /wires/*',
+	'GET /donations',
+	'GET /donations/*',
 	'GET /receipts',
 	'GET /comments',
 	'GET /tags',
@@ -116,6 +135,10 @@ const HEADERS_TO_REDACT = ['authorization'] as const;
 
 function checkPermissions(method: string, path: string, app: App): PermissionCheck {
 	const route = `${method} ${path}`;
+
+	if (micromatch.isMatch(route, BLOCKED_ROUTES)) {
+		return { allowed: false, error: 'This endpoint is not available through HCB-API' };
+	}
 
 	if (!app.allowMoneyMovement && micromatch.isMatch(route, MONEY_MOVEMENT_ROUTES)) {
 		return { allowed: false, required: 'allowMoneyMovement' };
@@ -176,7 +199,10 @@ async function handleProxyRequest({ request, url, getClientAddress }: RequestEve
 	const permissionCheck = checkPermissions(method, targetPath, validApp);
 	if (!permissionCheck.allowed) {
 		return json(
-			{ error: 'Insufficient permissions', required: permissionCheck.required },
+			{
+				error: permissionCheck.error ?? 'Insufficient permissions',
+				required: permissionCheck.required
+			},
 			{ status: 403 }
 		);
 	}
